@@ -16,9 +16,25 @@ const authRouter = require('./routes/authRoute')
 const cookieParser = require('cookie-parser');
 const jwt = require('jsonwebtoken')
 const globalErrorHandler = require('./routes/globalErrorhandler');
-const { storeMessage } = require('./routes/messageRoute');
+// const { storeMessage } = require('./routes/messageRoute');
+const messageRouter = require('./routes/messageRoute');
+const deviceModel = require('./models/deviceModel');
 
 dotenv.config();
+
+const storeMessage = async (senderId, receiverId, message) => {
+  console.log("sotre message:: ",message)
+
+  const chatKey = senderId < receiverId ? `chat:${senderId}:${receiverId}` : `chat:${receiverId}:${senderId}`;
+
+  const EXPIRATION_TIME = 20;
+  
+  // Push the message to Redis
+  await redis.rpush(chatKey, JSON.stringify(message));
+
+  // Set expiration for the key
+  await redis.expire(chatKey, EXPIRATION_TIME);
+};
 
 // Initialize Express app
 const app = express();
@@ -55,10 +71,30 @@ connectDB()
 
 // Initialize Firebase Admin (for push notifications)
 admin.initializeApp({
-  credential: admin.credential.applicationDefault(serviceAccount),
+  credential: admin.credential.cert(serviceAccount),
+  // databaseURL: "https://kuku-newui-default-rtdb.firebaseio.com"
 });
 
+const sendNotification = function (devicetokens,data){
+  console.log("send notificatin is being called",data,devicetokens);
+
+  const message = {
+    notification: {    // SyntaxError can occur here
+      "title": data.user_name,
+      "body": data.message,
+    },
+    "token": devicetokens.device_token
+  };
+
+  admin.messaging().send(message).then(function (response) {
+    console.log('FCM response:', response);
+  }).catch(function (error) {
+    console.log('FCM error:', error);
+  });
+}
+
 app.use('/api',authRouter)
+app.use('/api',messageRouter)
 
 // Socket.IO connection
 io.use((socket, next) => {
@@ -178,6 +214,26 @@ async function handleNewMessage(data, socket) {
     
     // Check if receiver is online
     const receiverStatus = await redis.get(`user:${receiverId}:status`);
+
+    const user = await User.findOne({_id:senderId})
+    const deviceToken = await deviceModel.findOne({user_id:user._id})
+
+    console.log("deviceToken:: ",deviceToken)
+
+    const token = deviceToken?.device_token;
+
+    if (!token) {
+      console.error('No device token found for the user.');
+      return;
+    }
+
+    const message_data = {
+      name:user.acct_name + " messaged you",
+      message:message
+    }
+
+    // send notification on the recieverId device
+    sendNotification(deviceToken,message_data,receiverId);
     
     if (receiverStatus === 'online') {
       // Emit to receiver's personal room
@@ -190,8 +246,10 @@ async function handleNewMessage(data, socket) {
       // Update message status to delivered
       await Message.findByIdAndUpdate(newMessage._id, { status: 'delivered' });
       newMessage.status = 'delivered';
-      
-      storeMessage(senderId,receiverId,newMessage);
+
+      console.log("type of store message:: ",typeof storeMessage)
+
+      await storeMessage(senderId,receiverId,newMessage);
     } else {
       // Store in Redis for offline delivery
       await redis.lpush(`offline:${receiverId}`, JSON.stringify(newMessage));

@@ -1,7 +1,8 @@
 const express = require('express');
 const router = express.Router();
 const User = require("../models/UserModel");
-const jwt = require("jsonwebtoken")
+const jwt = require("jsonwebtoken");
+// const UserModel = require('../models/UserModel');
 
 router.post("/login", async (req, res) => {
     try {
@@ -45,7 +46,7 @@ router.post("/login", async (req, res) => {
       console.error("Login error:", error);
       res.status(500).json({ message: "Server error" });
     }
-  });
+});
 
 router.post("/getid", async (req, res) => {
 try {
@@ -66,10 +67,10 @@ try {
     const userId = decoded.userId;
 
     if (!userId) {
-    return res.status(400).json({
-        status: 'fail',
-        message: 'User ID not found in token'
-    });
+      return res.status(400).json({
+          status: 'fail',
+          message: 'User ID not found in token'
+      });
     }
 
     // Respond with the user ID (or any other user-related data you want)
@@ -88,7 +89,13 @@ try {
 });
 
 // router.post()
-  
+router.get("/getUsers",async (req,res)=>{
+  const users = await User.find();
 
+  return res.status(200).json({
+    status:'success',
+    data:users
+  })
+})    
 
 module.exports = router;
