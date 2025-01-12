@@ -15,18 +15,22 @@ const redis = new Redis({
 // });
 
 // 7 days expiration time for redis
-const EXPIRATION_TIME = 30;
+const EXPIRATION_TIME = 7 * 24 * 60 * 60;
 
 // Store a message
 exports.storeMessage = async (senderId, receiverId, message) => {
-  console.log("sotre message:: ",message)
+  console.log("store message:: ", message);
 
+  // Generate the chat key based on sender and receiver IDs
   const chatKey = senderId < receiverId ? `chat:${senderId}:${receiverId}` : `chat:${receiverId}:${senderId}`;
-  
-  // Push the message to Redis
+
+  // Push the new message to Redis
   await redis.rpush(chatKey, JSON.stringify(message));
 
-  // Set expiration for the key
+  // Trim the list to ensure only the latest 30 messages are kept
+  await redis.ltrim(chatKey, -30, -1);
+
+  // Set expiration for the key (if required)
   await redis.expire(chatKey, EXPIRATION_TIME);
 };
 
@@ -42,7 +46,9 @@ const sendNotification = async (message,)=>{
 // Route to fetch messages
 router.get('/messages/:senderId/:receiverId', async (req, res) => {
     const { senderId, receiverId } = req.params;
-    const { offset = 0, limit = 10 } = req.query; // Default offset is 0, limit is 10
+    const { offset = 0, limit = 25 } = req.query; // Default offset is 0, limit is 10
+
+    console.log(`/messages/:senderId/:receiverId,${senderId},${receiverId}`)
   
     try {
       // Create a consistent key for the chat
@@ -74,6 +80,8 @@ router.get('/messages/:senderId/:receiverId', async (req, res) => {
             .skip(offset)
             .limit(limit)
             .lean();
+
+            console.log("messages:: ",messages);
   
           if (messages.length > 0) {
             // Only store data in Redis if offset is 0

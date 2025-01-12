@@ -22,17 +22,17 @@ const deviceModel = require('./models/deviceModel');
 
 dotenv.config();
 
-const storeMessage = async (senderId, receiverId, message) => {
-  console.log("sotre message:: ",message)
-
+storeMessage = async (senderId, receiverId, message) => {
+  // Generate the chat key based on sender and receiver IDs
   const chatKey = senderId < receiverId ? `chat:${senderId}:${receiverId}` : `chat:${receiverId}:${senderId}`;
 
-  const EXPIRATION_TIME = 20;
-  
-  // Push the message to Redis
+  // Push the new message to Redis
   await redis.rpush(chatKey, JSON.stringify(message));
 
-  // Set expiration for the key
+  // Trim the list to ensure only the latest 30 messages are kept
+  await redis.ltrim(chatKey, -30, -1);
+
+  // Set expiration for the key (if required)
   await redis.expire(chatKey, EXPIRATION_TIME);
 };
 
@@ -72,7 +72,6 @@ connectDB()
 // Initialize Firebase Admin (for push notifications)
 admin.initializeApp({
   credential: admin.credential.cert(serviceAccount),
-  // databaseURL: "https://kuku-newui-default-rtdb.firebaseio.com"
 });
 
 const sendNotification = function (devicetokens,data){
@@ -199,7 +198,6 @@ async function handleUserConnect(userId, socket) {
   }
 }
 
-
 async function handleNewMessage(data, socket) {
   try {
     const { senderId, receiverId, message } = data;
@@ -216,7 +214,7 @@ async function handleNewMessage(data, socket) {
     const receiverStatus = await redis.get(`user:${receiverId}:status`);
 
     const user = await User.findOne({_id:senderId})
-    const deviceToken = await deviceModel.findOne({user_id:user._id})
+    const deviceToken = await deviceModel.findOne({user_id:receiverId})
 
     console.log("deviceToken:: ",deviceToken)
 
@@ -224,7 +222,6 @@ async function handleNewMessage(data, socket) {
 
     if (!token) {
       console.error('No device token found for the user.');
-      return;
     }
 
     const message_data = {
